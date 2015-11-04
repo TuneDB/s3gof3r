@@ -5,6 +5,7 @@ package s3gof3r
 import (
 	"errors"
 	"fmt"
+	"github.com/juju/errgo"
 	"io"
 	"io/ioutil"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"sync"
 )
 
 // S3 contains the domain or endpoint of an S3-compatible service and
@@ -76,6 +78,80 @@ func (s3 *S3) Bucket(name string) *Bucket {
 		Name:   name,
 		Config: DefaultConfig,
 	}
+}
+
+//GetMultiple will download multiple files in chunks using a number of
+//workers defined in Config. This method returns a channel to receive chunks as they are completed. Chunks can
+//(and likely will) be returned out of order.
+// DefaultConfig is used if c is nil
+func (b *Bucket) GetMultiple(c *Config, files []string) (*getter, error) {
+
+	if c == nil {
+		c = b.conf()
+	}
+
+	errCh := make(chan error)
+	fileCh := make(chan string)
+	wg := &sync.WaitGroup{}
+	batchGetter, err := newBatchGetter(c, b)
+	if err != nil {
+		return nil, err
+	}
+	var errorSlice []error
+
+	for i:=0; i < c.Concurrency; i++{
+		wg.Add(1)
+		go func() {
+			for file := range fileCh {
+				u, err := b.url(file, c)
+				if err != nil {
+					logger.Printf("GetMultiple ERROR ON", b, "WITH FILE", file, errgo.Mask(err))
+					errCh <- err
+				}
+
+				_, err = batchGetter.queueFile(u)
+				if err != nil {
+					log.Println("GetMultiple ERROR ON", b, "WITH FILE", file, errgo.Mask(err))
+					errCh <- err
+				}
+			}
+			wg.Done()
+		}()
+	}
+
+	go func() {
+		for _, file := range files {
+			fileCh <- file
+		}
+		close(fileCh)
+	}()
+
+
+	go func () {
+		for err := range errCh {
+			errorSlice = append(errorSlice, err)
+		}
+	}()
+	wg.Wait()
+	close(errCh)
+
+
+	if len(errorSlice) > 0 {
+		errStr := "Error(s) found while retrieving files\n"
+		for i, err := range errorSlice {
+			errStr += fmt.Sprintf("\t%d: %s \n", i, err.Error())
+		}
+		return nil, errors.New(errStr)
+	}
+
+	go func() {
+		batchGetter.chunkWg.Wait()
+		close(batchGetter.getCh)
+		batchGetter.wg.Wait()
+		close(batchGetter.readCh)
+	}()
+
+	return batchGetter, nil
 }
 
 // GetReader provides a reader and downloads data using parallel ranged get requests.
