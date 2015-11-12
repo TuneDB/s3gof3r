@@ -28,6 +28,7 @@ type getter struct {
 	wg    sync.WaitGroup
 
 	chunkID      int64
+	fileCounter  int64
 	rChunk       *chunk
 	contentLen   int64
 	bytesRead    int64
@@ -60,6 +61,7 @@ type chunk struct {
 	header   http.Header
 	response *http.Response
 	url      url.URL
+	fileNum  int64  // The file number, reflecting the call to initChunks() that created this instance
 }
 
 func newBatchGetter(c *Config, b *Bucket) (*getter, error) {
@@ -77,6 +79,7 @@ func newBatchGetter(c *Config, b *Bucket) (*getter, error) {
 	g.md5 = md5.New()
 	g.chunkTotal = 0
 	g.chunkCounter = 0
+	g.fileCounter = 0
 
 	g.sp = bufferPool(g.bufsz)
 
@@ -185,6 +188,7 @@ func (g *getter) queueFile(url *url.URL) (http.Header, error) {
 }
 
 func (g *getter) initChunks(resp *http.Response, path string) {
+	fileNum := atomic.AddInt64(&g.fileCounter, 1)
 	for i := int64(0); i < resp.ContentLength; {
 		for len(g.qWait) >= qWaitSz {
 			// Limit growth of qWait
@@ -203,6 +207,7 @@ func (g *getter) initChunks(resp *http.Response, path string) {
 			url:      *resp.Request.URL,
 			path:     path,
 			fileSize: resp.ContentLength,
+			fileNum:  fileNum,
 		}
 
 		//Re-use the response for the first chunk
@@ -338,15 +343,15 @@ func (g *getter) Read(p []byte) (int, error) {
 }
 
 func (g *getter) WriteToWriterAt(w io.WriterAt) (int, error) {
-	fileOffsetMap := make(map[string]int64)
+	fileOffsetMap := make(map[int64]int64)
 	filePosition := int64(0)
 	totalWritten := int(0)
 
 	for chunk := range g.readCh {
-		fileOffset, present := fileOffsetMap[chunk.path]
+		fileOffset, present := fileOffsetMap[chunk.fileNum]
 		if !present {
 			fileOffset = filePosition
-			fileOffsetMap[chunk.path] = filePosition
+			fileOffsetMap[chunk.fileNum] = filePosition
 			filePosition += chunk.fileSize
 		}
 
