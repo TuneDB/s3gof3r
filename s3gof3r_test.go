@@ -1,6 +1,5 @@
 package s3gof3r
 
-
 import (
 	"bytes"
 	"crypto/rand"
@@ -493,41 +492,41 @@ but the duplicated files were only loaded once.  One bug masking another.  This 
 that GetMultiple isn't responsible for that.  It relies on files currently in the 'tunedb-tetris-beta' S3
 bucket.  To run it you'll need to set your tunedb AWS creds in the usual env vars.  */
 func TestGetMultiple(t *testing.T) {
-	
+
 	keys, err := EnvKeys()
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	s3 := New("", keys)
-	
+
 	var s3gof3rConfig = DefaultConfig
 	s3gof3rConfig.Md5Check = false
 	s3gof3rConfig.Scheme = "http"
 	s3gof3rConfig.Concurrency = 10
 	s3gof3rConfig.NTry = 5
 	s3gof3rConfig.Client = ClientWithTimeout(5 * time.Second)
-	
+
 	s3Bucket := s3.Bucket("tunedb-tetris-beta")
-	
+
 	prefix := "/log/retl/7336/log_conversions/1_2/2015/11/"
 	importS3Files := []string{
-		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv",   // a 5KB file
-		prefix + "7336-log_conversions-1_2-20151101-176ae58c9476428592094508a0281c3b.csv",   // a 16KB file
-		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv",   // dup of the 5KB file
+		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv", // a 5KB file
+		prefix + "7336-log_conversions-1_2-20151101-176ae58c9476428592094508a0281c3b.csv", // a 16KB file
+		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv", // dup of the 5KB file
 	}
-	
+
 	// a log_id from the 5KB file
 	logID := "a9c8d17bf8c51aaa82-20151101-7336"
 
 	getter, err := s3Bucket.GetMultiple(s3gof3rConfig, importS3Files)
-	
+
 	if err != nil {
 		t.Fatal("got an error calling GetMultiple():", err)
 		return
 	}
 	defer getter.Close()
-	
+
 	buffer := make([]byte, 30000)
 	_, err = getter.Read(buffer)
 	if err != nil && err != io.EOF {
@@ -542,5 +541,5 @@ func TestGetMultiple(t *testing.T) {
 		t.Fail()
 		return
 	}
-	
+
 }

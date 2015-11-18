@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
-	"sync/atomic"
 )
 
 const (
@@ -51,7 +51,7 @@ type getter struct {
 }
 
 type chunk struct {
-	id       int64    // The chunk number for the file being retrieved
+	id       int64  // The chunk number for the file being retrieved
 	start    int64  // The position in the requested file at which this chunk's data begins
 	size     int64  // Number of bytes contained in this chunk
 	fileSize int64  // Total size of the requested file
@@ -61,7 +61,7 @@ type chunk struct {
 	header   http.Header
 	response *http.Response
 	url      url.URL
-	fileNum  int64  // The file number, reflecting the call to initChunks() that created this instance
+	fileNum  int64 // The file number, reflecting the call to initChunks() that created this instance
 }
 
 func newBatchGetter(c *Config, b *Bucket) (*getter, error) {
@@ -177,7 +177,7 @@ func (g *getter) queueFile(url *url.URL) (http.Header, error) {
 	}
 
 	atomic.AddInt64(&g.contentLen, resp.ContentLength)
-	atomic.AddInt64(&g.chunkTotal, int64((resp.ContentLength + g.bufsz - 1) / g.bufsz))// round up, integer division
+	atomic.AddInt64(&g.chunkTotal, int64((resp.ContentLength+g.bufsz-1)/g.bufsz)) // round up, integer division
 
 	logger.debugPrintf("object size: %3.2g MB", float64(resp.ContentLength)/float64((1*mb)))
 	go func() {

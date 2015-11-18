@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"time"
 	"sync"
+	"time"
 )
 
 // S3 contains the domain or endpoint of an S3-compatible service and
@@ -99,7 +99,7 @@ func (b *Bucket) GetMultiple(c *Config, files []string) (*getter, error) {
 	}
 	var errorSlice []error
 
-	for i:=0; i < c.Concurrency; i++{
+	for i := 0; i < c.Concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			for file := range fileCh {
@@ -126,15 +126,13 @@ func (b *Bucket) GetMultiple(c *Config, files []string) (*getter, error) {
 		close(fileCh)
 	}()
 
-
-	go func () {
+	go func() {
 		for err := range errCh {
 			errorSlice = append(errorSlice, err)
 		}
 	}()
 	wg.Wait()
 	close(errCh)
-
 
 	if len(errorSlice) > 0 {
 		errStr := "Error(s) found while retrieving files\n"
