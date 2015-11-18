@@ -196,7 +196,6 @@ func testBucket() (*tB, error) {
 	bucket := os.Getenv("TEST_BUCKET")
 	if bucket == "" {
 		return nil, errors.New("TEST_BUCKET must be set in environment")
-
 	}
 	s3 := New("", k)
 	b := tB{s3.Bucket(bucket)}
@@ -485,6 +484,62 @@ func TestGetterAfterError(t *testing.T) {
 	err = r.Close()
 	if err != terr {
 		t.Errorf("expected error %v on Close, got %v", terr, err)
+	}
+}
+
+/* Troubleshooting TUNEBI-64, we noticed multiple files being listed in a single SQS message,
+but the duplicated files were only loaded once.  One bug masking another.  This test verifies
+that GetMultiple isn't responsible for that.  It relies on files currently in the 'tunedb-tetris-beta' S3
+bucket.  To run it you'll need to set your tunedb AWS creds in the usual env vars.  */
+func TestGetMultiple(t *testing.T) {
+
+	keys, err := EnvKeys()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	s3 := New("", keys)
+
+	var s3gof3rConfig = DefaultConfig
+	s3gof3rConfig.Md5Check = false
+	s3gof3rConfig.Scheme = "http"
+	s3gof3rConfig.Concurrency = 10
+	s3gof3rConfig.NTry = 5
+	s3gof3rConfig.Client = ClientWithTimeout(5 * time.Second)
+
+	s3Bucket := s3.Bucket("tunedb-tetris-beta")
+
+	prefix := "/log/retl/7336/log_conversions/1_2/2015/11/"
+	importS3Files := []string{
+		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv", // a 5KB file
+		prefix + "7336-log_conversions-1_2-20151101-176ae58c9476428592094508a0281c3b.csv", // a 16KB file
+		prefix + "7336-log_conversions-1_2-20151101-8bd224456aa74852bb50f26a6028dd79.csv", // dup of the 5KB file
+	}
+
+	// a log_id from the 5KB file
+	logID := "a9c8d17bf8c51aaa82-20151101-7336"
+
+	getter, err := s3Bucket.GetMultiple(s3gof3rConfig, importS3Files)
+
+	if err != nil {
+		t.Fatal("got an error calling GetMultiple():", err)
+		return
+	}
+	defer getter.Close()
+
+	buffer := make([]byte, 30000)
+	_, err = getter.Read(buffer)
+	if err != nil && err != io.EOF {
+		t.Fatal("unexpected error copying getter -> buffer:", err)
+		return
+	}
+
+	// make sure there are 2 instance of the log_id above
+	logIDCount := strings.Count(string(buffer), logID)
+	if logIDCount != 2 {
+		t.Errorf("Error counting instances of log_id, expected 2 got %d", logIDCount)
+		t.Fail()
+		return
 	}
 
 }
